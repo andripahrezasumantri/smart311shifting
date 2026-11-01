@@ -1,0 +1,1183 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SMART SHIFTING SYSTEM - 311 - MDS DUTAMALL BANJARMASIN</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React & ReactDOM CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel Standalone untuk JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- SheetJS CDN untuk Membaca File Excel .xlsx / .xls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body class="bg-zinc-100 text-zinc-800 font-sans pb-12 min-h-screen selection:bg-slate-800 selection:text-white">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useMemo, useEffect, useRef } = React;
+
+    // URL Google Apps Script Anda
+    const SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbx1v8BwqZA5BsOZCHHP45N-HkED6cl6yuJ9x7qt-3LIZwNMvrSEl1fRgf9qy9s6PJDY/exec";
+    const LOCAL_STORAGE_KEY = 'mds_311_shifting_spv_cache';
+    const LOCAL_STORAGE_FILES_KEY = 'mds_311_shifting_uploaded_files';
+
+    // Helper Function untuk mendapatkan tanggal hari ini dalam format YYYY-MM-DD
+    const getTodayFormatted = () => {
+      const today = new Date();
+      const year = today.getFullYear();
+      const month = String(today.getMonth() + 1).padStart(2, '0');
+      const day = String(today.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    // Helper Function normalisasi format tanggal dari API ke YYYY-MM-DD
+    const normalizeDate = (rawDate) => {
+      if (!rawDate) return getTodayFormatted();
+      const d = new Date(rawDate);
+      if (isNaN(d.getTime())) return rawDate.toString().trim();
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    // Daftar Nama Supervisor Resmi
+    const OFFICIAL_SPVS = ["Lesti", "Denny", "Adhi", "Salman", "Yulinda", "Betty", "Rival", "Rini", "Baihaqi", "Puteri"];
+
+    // SVG Icons
+    const ClockIcon = () => (
+      <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    );
+
+    const PlusIcon = () => (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+      </svg>
+    );
+
+    const CalendarIcon = () => (
+      <svg className="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+      </svg>
+    );
+
+    const AlertTriangleIcon = () => (
+      <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+      </svg>
+    );
+
+    const CheckCircleIcon = () => (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    );
+
+    const XIcon = () => (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    );
+
+    const TrashIcon = () => (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+      </svg>
+    );
+
+    const RotateCcwIcon = () => (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+      </svg>
+    );
+
+    const UsersIcon = () => (
+      <svg className="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+      </svg>
+    );
+
+    const SearchIcon = () => (
+      <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+    );
+
+    const SunIcon = () => (
+      <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+      </svg>
+    );
+
+    const MoonIcon = () => (
+      <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+      </svg>
+    );
+
+    const CoffeeIcon = () => (
+      <svg className="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18 8h1a4 4 0 010 8h-1M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8zM6 1v3m4-3v3m4-3v3" />
+      </svg>
+    );
+
+    const PalmIcon = () => (
+      <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+      </svg>
+    );
+
+    const CalendarOffIcon = () => (
+      <svg className="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+      </svg>
+    );
+
+    const FirstAidIcon = () => (
+      <svg className="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+      </svg>
+    );
+
+    const BriefcaseIcon = () => (
+      <svg className="w-4 h-4 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+      </svg>
+    );
+
+    const UploadIcon = () => (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+      </svg>
+    );
+
+    const SheetsIcon = () => (
+      <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>
+    );
+
+    const FilterIcon = () => (
+      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+      </svg>
+    );
+
+    const BookOpenIcon = () => (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+      </svg>
+    );
+
+    function App() {
+      const getCachedData = () => {
+        const cached = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (cached) {
+          try { return JSON.parse(cached); } catch (e) {}
+        }
+        return [];
+      };
+
+      const getCachedUploadedFiles = () => {
+        const cached = localStorage.getItem(LOCAL_STORAGE_FILES_KEY);
+        if (cached) {
+          try { return JSON.parse(cached); } catch (e) {}
+        }
+        return [];
+      };
+
+      const [schedules, setSchedules] = useState(getCachedData);
+      const [uploadedFiles, setUploadedFiles] = useState(getCachedUploadedFiles);
+      const [selectedDate, setSelectedDate] = useState(getTodayFormatted);
+      const [roleFilter, setRoleFilter] = useState('ALL');
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [isGuideOpen, setIsGuideOpen] = useState(false); // Modal Panduan State
+      const [toastMessage, setToastMessage] = useState('');
+      const [isSyncing, setIsSyncing] = useState(false);
+      const [currentTime, setCurrentTime] = useState('');
+
+      const fileInputRef = useRef(null);
+
+      // TIMER REAL-TIME WITA
+      useEffect(() => {
+        const updateClock = () => {
+          const now = new Date();
+          const timeString = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          setCurrentTime(`${timeString} WITA`);
+        };
+        updateClock();
+        const timer = setInterval(updateClock, 1000);
+        return () => clearInterval(timer);
+      }, []);
+
+      const showToast = (msg) => {
+        setToastMessage(msg);
+        setTimeout(() => setToastMessage(''), 4000);
+      };
+
+      // Fetch Data dari Google Sheets API
+      const fetchFromSheets = async () => {
+        try {
+          setIsSyncing(true);
+          const response = await fetch(SHEETS_API_URL);
+          if (response.ok) {
+            const data = await response.json();
+            if (Array.isArray(data)) {
+              const normalizedData = data.map(item => ({
+                ...item,
+                date: normalizeDate(item.date)
+              }));
+              setSchedules(normalizedData);
+              localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(normalizedData));
+            }
+          }
+        } catch (error) {
+          console.warn("Menggunakan cache lokal karena Sheets API offline.", error);
+        } finally {
+          setIsSyncing(false);
+        }
+      };
+
+      // Auto Fetch Saat Pertama Buka & Auto Polling Tiap 5 Detik
+      useEffect(() => {
+        fetchFromSheets();
+        const interval = setInterval(() => {
+          fetchFromSheets();
+        }, 5000);
+
+        return () => clearInterval(interval);
+      }, []);
+
+      // FITUR IMPOR AUTOMATIS DARI FILE EXCEL HRS DENGAN LOGIKA SPK REVISI
+      const handleFileUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const fileName = file.name.trim();
+
+        if (uploadedFiles.includes(fileName)) {
+          const confirmOverwrite = window.confirm(
+            `⚠️ PERINGATAN FILE DUPLIKAT!\n\nFile dengan nama "${fileName}" sudah pernah di-upload sebelumnya!\n\nApakah Anda yakin ingin meng-upload ulang dan memperbarui data jadwal dari file ini?`
+          );
+          if (!confirmOverwrite) {
+            if (fileInputRef.current) fileInputRef.current.value = "";
+            return;
+          }
+        }
+
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+          try {
+            setIsSyncing(true);
+            const bstr = evt.target.result;
+            const wb = XLSX.read(bstr, { type: 'binary' });
+            const sheetName = wb.SheetNames[0];
+            const ws = wb.Sheets[sheetName];
+            
+            const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+            let year = 2026;
+            let month = 11;
+
+            const monthNames = ["JANUARI", "FEBRUARI", "MARET", "APRIL", "MEI", "JUNI", "JULI", "AGUSTUS", "SEPTEMBER", "OKTOBER", "NOVEMBER", "DESEMBER"];
+            const monthNamesShort = ["JAN", "FEB", "MAR", "APR", "MEI", "JUN", "JUL", "AGT", "SEP", "OKT", "NOV", "DES"];
+
+            for (let r = 0; r < Math.min(5, rawData.length); r++) {
+              const rowStr = JSON.stringify(rawData[r] || "").toUpperCase();
+              monthNames.forEach((mFull, idx) => {
+                if (rowStr.includes(mFull) || rowStr.includes(monthNamesShort[idx])) {
+                  month = idx + 1;
+                }
+              });
+              const yearMatch = rowStr.match(/20\d{2}/);
+              if (yearMatch) {
+                year = parseInt(yearMatch[0]);
+              }
+            }
+
+            let dateRowIndex = -1;
+            let dateColMap = {};
+
+            for (let r = 0; r < Math.min(10, rawData.length); r++) {
+              const row = rawData[r];
+              if (Array.isArray(row)) {
+                row.forEach((cell, cIdx) => {
+                  if (typeof cell === 'number' && cell >= 1 && cell <= 31) {
+                    if (dateRowIndex === -1) dateRowIndex = r;
+                    dateColMap[cIdx] = cell;
+                  }
+                });
+              }
+              if (dateRowIndex !== -1) break;
+            }
+
+            if (dateRowIndex === -1) {
+              alert("Gagal membaca header tanggal pada file Excel. Pastikan terdapat baris angka tanggal (1 - 31).");
+              setIsSyncing(false);
+              return;
+            }
+
+            const parsedSchedules = [];
+            const timestampBase = Date.now();
+            let countId = 0;
+
+            for (let r = dateRowIndex + 1; r < rawData.length; r++) {
+              const row = rawData[r];
+              if (!row || row.length === 0) continue;
+
+              let rawName = (row[0] || row[1] || "").toString().trim();
+              if (!rawName || rawName.toUpperCase().includes("NAMA") || rawName.toUpperCase().includes("WORLD")) continue;
+
+              let cleanedName = rawName.toUpperCase();
+              let matchedSpv = OFFICIAL_SPVS.find(s => cleanedName.includes(s.toUpperCase()));
+              let finalName = matchedSpv ? matchedSpv : rawName;
+              let role = matchedSpv ? "SUPERVISOR" : "PASS";
+
+              Object.keys(dateColMap).forEach(colIdx => {
+                const dayNum = dateColMap[colIdx];
+                const dayStr = String(dayNum).padStart(2, '0');
+                const monthStr = String(month).padStart(2, '0');
+                const dateStr = `${year}-${monthStr}-${dayStr}`;
+
+                const cellVal = (row[colIdx] || "").toString().trim().toUpperCase();
+                if (!cellVal) return;
+
+                let shift = "Shift 1";
+                let sidakKasir = "-";
+                let mod = "NO MOD";
+
+                if (cellVal === "P") {
+                  shift = "Shift 1";
+                } else if (cellVal === "S") {
+                  shift = "Shift 2";
+                } else if (cellVal === "OFF" || cellVal === "RO") {
+                  shift = "OFF";
+                } else if (cellVal === "PD") {
+                  shift = "PERJALANAN DINAS";
+                } else if (cellVal === "CUTI") {
+                  shift = "CUTI";
+                } else if (cellVal === "LHB") {
+                  shift = "LHB";
+                } else if (cellVal === "SPK") {
+                  shift = "Shift 2";
+                  mod = "MOD";
+                  sidakKasir = finalName;
+                } else {
+                  shift = cellVal;
+                }
+
+                parsedSchedules.push({
+                  id: `id_${timestampBase}_${countId++}`,
+                  date: dateStr,
+                  name: finalName,
+                  role: role,
+                  mod: mod,
+                  sidakKasir: sidakKasir,
+                  shift: shift,
+                  sourceFile: fileName
+                });
+              });
+            }
+
+            if (parsedSchedules.length > 0) {
+              const filteredOldData = schedules.filter(item => item.sourceFile !== fileName);
+              const updatedList = [...parsedSchedules, ...filteredOldData];
+
+              setSchedules(updatedList);
+              localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedList));
+
+              const updatedFilesList = [...new Set([fileName, ...uploadedFiles])];
+              setUploadedFiles(updatedFilesList);
+              localStorage.setItem(LOCAL_STORAGE_FILES_KEY, JSON.stringify(updatedFilesList));
+
+              try {
+                await fetch(SHEETS_API_URL, {
+                  method: 'POST',
+                  body: JSON.stringify({ action: 'bulk_add', data: parsedSchedules })
+                });
+              } catch (err) {
+                console.error("Gagal sinkron massal ke Sheets:", err);
+              }
+
+              const firstDateParsed = `${year}-${String(month).padStart(2, '0')}-01`;
+              setSelectedDate(firstDateParsed);
+
+              showToast(`Berhasil mengimpor ${parsedSchedules.length} data dari file '${fileName}'!`);
+            } else {
+              alert("Tidak ada data jadwal valid yang dapat dibaca dari file Excel.");
+            }
+
+          } catch (err) {
+            console.error("Error parsing file Excel:", err);
+            alert("Terjadi kesalahan saat membaca file Excel.");
+          } finally {
+            setIsSyncing(false);
+            if (fileInputRef.current) fileInputRef.current.value = "";
+          }
+        };
+
+        reader.readAsBinaryString(file);
+      };
+
+      // Form State
+      const [formData, setFormData] = useState({
+        date: getTodayFormatted(),
+        name: '',
+        role: 'PASS',
+        mod: 'NO MOD',
+        sidakKasir: '-',
+        shift: 'Shift 1',
+      });
+      const [errorMessage, setErrorMessage] = useState('');
+
+      const handleResetData = async () => {
+        if (window.confirm("Apakah Anda yakin ingin mengosongkan seluruh data di Google Sheets dan mereset riwayat upload?")) {
+          setSchedules([]);
+          setUploadedFiles([]);
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify([]));
+          localStorage.setItem(LOCAL_STORAGE_FILES_KEY, JSON.stringify([]));
+          try {
+            await fetch(SHEETS_API_URL, {
+              method: 'POST',
+              body: JSON.stringify({ action: 'reset' })
+            });
+          } catch (e) {
+            console.error("Gagal mereset Sheets:", e);
+          }
+          showToast("Data Google Sheets & Riwayat Upload telah dibersihkan!");
+        }
+      };
+
+      const filteredDateSchedules = useMemo(() => {
+        return schedules.filter((item) => item.date === selectedDate);
+      }, [schedules, selectedDate]);
+
+      const activeDisplaySchedules = useMemo(() => {
+        if (roleFilter === 'SUPERVISOR') {
+          return filteredDateSchedules.filter((item) => item.role === 'SUPERVISOR');
+        }
+        return filteredDateSchedules;
+      }, [filteredDateSchedules, roleFilter]);
+
+      const shift1Schedules = useMemo(() => {
+        return activeDisplaySchedules.filter((item) => item.shift === 'Shift 1');
+      }, [activeDisplaySchedules]);
+
+      const shift2Schedules = useMemo(() => {
+        return activeDisplaySchedules.filter((item) => item.shift === 'Shift 2');
+      }, [activeDisplaySchedules]);
+
+      const otherSchedules = useMemo(() => {
+        return activeDisplaySchedules.filter((item) => !['Shift 1', 'Shift 2'].includes(item.shift));
+      }, [activeDisplaySchedules]);
+
+      const shiftCounts = useMemo(() => {
+        const counts = { 'Shift 1': 0, 'Shift 2': 0, OFF: 0, CUTI: 0, LHB: 0, SAKIT: 0, 'PERJALANAN DINAS': 0 };
+        activeDisplaySchedules.forEach((item) => {
+          if (counts[item.shift] !== undefined) {
+            counts[item.shift]++;
+          }
+        });
+        return counts;
+      }, [activeDisplaySchedules]);
+
+      const sidakKasirShift1 = useMemo(() => {
+        const names = activeDisplaySchedules
+          .filter((item) => item.shift === 'Shift 1' && item.sidakKasir && item.sidakKasir !== '-')
+          .map((item) => item.sidakKasir);
+        return [...new Set(names)];
+      }, [activeDisplaySchedules]);
+
+      const sidakKasirShift2 = useMemo(() => {
+        const names = activeDisplaySchedules
+          .filter((item) => item.shift === 'Shift 2' && item.sidakKasir && item.sidakKasir !== '-')
+          .map((item) => item.sidakKasir);
+        return [...new Set(names)];
+      }, [activeDisplaySchedules]);
+
+      const spvPureCounts = useMemo(() => {
+        let s1 = 0;
+        let s2 = 0;
+        filteredDateSchedules.forEach((item) => {
+          if (item.role === 'SUPERVISOR') {
+            if (item.shift === 'Shift 1') s1++;
+            if (item.shift === 'Shift 2') s2++;
+          }
+        });
+        return { s1, s2 };
+      }, [filteredDateSchedules]);
+
+      const isIdeal = useMemo(() => {
+        return spvPureCounts.s1 >= 3 && spvPureCounts.s2 >= 3;
+      }, [spvPureCounts]);
+
+      const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setFormData((prev) => ({ ...prev, [name]: value }));
+      };
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!formData.date || !formData.name.trim() || !formData.role || !formData.mod || !formData.shift) {
+          setErrorMessage('Tolong lengkapi data.');
+          return;
+        }
+
+        const newId = 'id_' + Date.now();
+        const newSchedule = {
+          id: newId,
+          date: formData.date,
+          name: formData.name.trim(),
+          role: formData.role,
+          mod: formData.mod,
+          sidakKasir: formData.sidakKasir || '-',
+          shift: formData.shift,
+        };
+
+        const updatedList = [newSchedule, ...schedules];
+        setSchedules(updatedList);
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedList));
+
+        try {
+          fetch(SHEETS_API_URL, {
+            method: 'POST',
+            body: JSON.stringify({ action: 'add', data: newSchedule })
+          }).then(() => fetchFromSheets());
+        } catch (err) {
+          console.error("Gagal kirim data ke Sheets:", err);
+        }
+
+        setSelectedDate(formData.date);
+        setFormData({
+          date: formData.date,
+          name: '',
+          role: 'PASS',
+          mod: 'NO MOD',
+          sidakKasir: '-',
+          shift: 'Shift 1',
+        });
+        setErrorMessage('');
+        setIsModalOpen(false);
+        showToast('Jadwal tersimpan di Google Sheets!');
+      };
+
+      const handleDelete = async (id, name) => {
+        if (window.confirm(`Hapus jadwal ${name}? Data di Google Sheets juga akan terhapus.`)) {
+          const updatedList = schedules.filter((item) => item.id !== id);
+          setSchedules(updatedList);
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedList));
+
+          try {
+            fetch(SHEETS_API_URL, {
+              method: 'POST',
+              body: JSON.stringify({ action: 'delete', id: id })
+            }).then(() => fetchFromSheets());
+          } catch (err) {
+            console.error("Gagal hapus data di Sheets:", err);
+          }
+
+          showToast('Jadwal berhasil dihapus!');
+        }
+      };
+
+      // Muted Enterprise Badge Colors
+      const getShiftBadge = (shift) => {
+        switch (shift) {
+          case 'Shift 1': return 'bg-amber-50 text-amber-900 border-amber-200/80';
+          case 'Shift 2': return 'bg-indigo-50 text-indigo-900 border-indigo-200/80';
+          case 'OFF': return 'bg-zinc-100 text-zinc-600 border-zinc-200';
+          case 'CUTI': return 'bg-emerald-50 text-emerald-900 border-emerald-200/80';
+          case 'LHB': return 'bg-yellow-50 text-yellow-900 border-yellow-200/80';
+          case 'SAKIT': return 'bg-rose-50 text-rose-900 border-rose-200/80';
+          case 'PERJALANAN DINAS': return 'bg-cyan-50 text-cyan-900 border-cyan-200/80';
+          default: return 'bg-zinc-100 text-zinc-700';
+        }
+      };
+
+      const ScheduleTable = ({ items, title, headerBg, badgeColor }) => (
+        <div className="bg-white rounded-xl border border-zinc-200/80 shadow-xs overflow-hidden flex-1">
+          <div className={`p-4 border-b border-zinc-100 flex justify-between items-center ${headerBg}`}>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-zinc-800 text-sm tracking-wide">{title}</h3>
+              <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold ${badgeColor}`}>
+                {items.length} Personel
+              </span>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-zinc-50 border-b border-zinc-200/80 text-zinc-500 text-[11px] font-bold uppercase tracking-wider">
+                  <th className="py-3 px-4">Nama</th>
+                  <th className="py-3 px-4">Jabatan</th>
+                  <th className="py-3 px-4">Status MOD</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4 text-center">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 text-sm text-zinc-700">
+                {items.length > 0 ? (
+                  items.map((item) => (
+                    <tr key={item.id} className="hover:bg-zinc-50/80 transition duration-150">
+                      <td className="py-3 px-4 font-semibold text-zinc-900">{item.name}</td>
+                      <td className="py-3 px-4 text-zinc-600 font-medium">
+                        <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                          item.role === 'SUPERVISOR' 
+                            ? 'bg-zinc-900 text-white' 
+                            : 'bg-zinc-100 text-zinc-600 border border-zinc-200'
+                        }`}>
+                          {item.role}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold ${
+                          item.mod === 'MOD' 
+                            ? 'bg-amber-100 text-amber-900 border border-amber-300' 
+                            : 'bg-zinc-100 text-zinc-400'
+                        }`}>
+                          {item.mod}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`inline-block px-2.5 py-0.5 rounded-md text-xs font-bold border ${getShiftBadge(item.shift)}`}>
+                          {item.shift}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <button
+                          onClick={() => handleDelete(item.id, item.name)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-zinc-500 hover:text-rose-700 hover:bg-rose-50 border border-zinc-200 hover:border-rose-200 rounded-md transition duration-150"
+                        >
+                          <TrashIcon />
+                          <span>Hapus</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="5" className="py-6 text-center text-zinc-400 text-xs font-medium">
+                      Tidak ada data pada kategori ini.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-zinc-100 text-zinc-800 font-sans pb-12 flex flex-col justify-between">
+          <div>
+            {toastMessage && (
+              <div className="fixed top-5 right-5 z-50 flex items-center gap-2 bg-zinc-900 text-white px-4 py-3 rounded-xl shadow-xl transition-all">
+                <CheckCircleIcon />
+                <span className="text-sm font-medium">{toastMessage}</span>
+              </div>
+            )}
+
+            {/* HEADER ENTERPRISE DARK SLATE */}
+            <header className="bg-slate-900 border-b border-slate-800 sticky top-0 z-10 shadow-md">
+              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-slate-800 text-amber-400 rounded-xl border border-slate-700 shadow-xs">
+                    <ClockIcon />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h1 className="text-lg sm:text-xl font-extrabold text-white tracking-tight">SMART SHIFTING SYSTEM - 311</h1>
+                      <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-emerald-400 bg-emerald-950/80 px-2.5 py-0.5 rounded-full border border-emerald-800/60">
+                        <SheetsIcon />
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                        <span>{isSyncing ? 'MENYINKRONKAN...' : 'TERHUBUNG'}</span>
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <p className="text-xs font-bold text-slate-400 tracking-wider uppercase">
+                        MDS DUTAMALL BANJARMASIN
+                      </p>
+                      <span className="text-slate-600">•</span>
+                      <span className="text-xs font-mono font-medium text-amber-300 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+                        {currentTime || '12:48:05 WITA'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  {/* TOMBOL PANDUAN BARU */}
+                  <button
+                    onClick={() => setIsGuideOpen(true)}
+                    className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold px-3 py-2 rounded-lg transition duration-200 text-xs border border-slate-700 shadow-xs"
+                    title="Buka Panduan Penggunaan Supervisor"
+                  >
+                    <BookOpenIcon />
+                    <span>Panduan SPV</span>
+                  </button>
+
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileUpload}
+                    accept=".xlsx, .xls"
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => fileInputRef.current.click()}
+                    className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-medium px-3.5 py-2 rounded-lg transition duration-200 text-xs shadow-xs"
+                    title="Upload File Excel dari HRS"
+                  >
+                    <UploadIcon />
+                    <span>Import Excel HRS</span>
+                  </button>
+                  <button
+                    onClick={handleResetData}
+                    className="hidden sm:flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium px-3 py-2 rounded-lg transition duration-200 text-xs border border-slate-700"
+                  >
+                    <RotateCcwIcon />
+                    <span>Reset Sheets</span>
+                  </button>
+                  <button
+                    onClick={() => setIsModalOpen(true)}
+                    className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-4 py-2 rounded-lg transition duration-200 shadow-sm text-sm"
+                  >
+                    <PlusIcon />
+                    <span>Tambah Jadwal</span>
+                  </button>
+                </div>
+              </div>
+            </header>
+
+            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 space-y-6">
+              
+              {/* Filter Section */}
+              <div className="bg-white p-4 rounded-xl border border-zinc-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <CalendarIcon />
+                  <span className="font-bold text-xs uppercase tracking-wider text-zinc-500">Filter Tanggal:</span>
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="ml-2 px-3 py-1.5 border border-zinc-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:outline-none text-zinc-800 font-semibold text-sm bg-zinc-50"
+                  />
+                </div>
+
+                <div className="flex items-center gap-1.5 bg-zinc-100 p-1 rounded-lg border border-zinc-200 self-start sm:self-auto">
+                  <span className="text-xs font-bold text-zinc-500 px-2 flex items-center gap-1">
+                    <FilterIcon /> View:
+                  </span>
+                  <button
+                    onClick={() => setRoleFilter('ALL')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition duration-150 ${
+                      roleFilter === 'ALL'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60'
+                    }`}
+                  >
+                    Semua Personel
+                  </button>
+                  <button
+                    onClick={() => setRoleFilter('SUPERVISOR')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition duration-150 ${
+                      roleFilter === 'SUPERVISOR'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60'
+                    }`}
+                  >
+                    ⭐ Hanya Supervisor
+                  </button>
+                </div>
+              </div>
+
+              {!isIdeal && (
+                <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-xl flex items-start gap-3 shadow-xs">
+                  <AlertTriangleIcon />
+                  <div>
+                    <h3 className="font-bold text-amber-900 text-sm">Peringatan Keseimbangan Supervisor</h3>
+                    <p className="text-xs text-amber-800 mt-0.5">
+                      NOT IDEAL - Minimum 3 orang berjabatan <strong>SUPERVISOR</strong> diperlukan untuk masing-masing Shift 1 dan Shift 2 (Saat ini: Shift 1 = {spvPureCounts.s1} SPV, Shift 2 = {spvPureCounts.s2} SPV).
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* KPI Summary Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-2.5">
+                
+                <div className="bg-white p-3 rounded-xl border border-zinc-200/80 shadow-xs">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                    {roleFilter === 'SUPERVISOR' ? 'Total SPV' : 'Total Personel'}
+                  </p>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-lg font-bold text-zinc-900">{activeDisplaySchedules.length}</span>
+                    <UsersIcon />
+                  </div>
+                </div>
+
+                <div className="bg-white p-3 rounded-xl border border-amber-200/80 bg-amber-50/20 shadow-xs flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">Sidak Kasir</p>
+                    <SearchIcon />
+                  </div>
+                  <div className="mt-1 space-y-0.5 text-[10px]">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-zinc-400">S1:</span>
+                      <span className="font-bold text-amber-950 truncate max-w-[60px]" title={sidakKasirShift1.join(', ')}>
+                        {sidakKasirShift1.length > 0 ? sidakKasirShift1.join(', ') : '-'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-zinc-400">S2:</span>
+                      <span className="font-bold text-amber-950 truncate max-w-[60px]" title={sidakKasirShift2.join(', ')}>
+                        {sidakKasirShift2.length > 0 ? sidakKasirShift2.join(', ') : '-'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white p-3 rounded-xl border border-zinc-200/80 shadow-xs">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Shift 1</p>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-lg font-bold text-amber-600">{shiftCounts['Shift 1']}</span>
+                    <SunIcon />
+                  </div>
+                </div>
+
+                <div className="bg-white p-3 rounded-xl border border-zinc-200/80 shadow-xs">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Shift 2</p>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-lg font-bold text-indigo-600">{shiftCounts['Shift 2']}</span>
+                    <MoonIcon />
+                  </div>
+                </div>
+
+                <div className="bg-white p-3 rounded-xl border border-zinc-200/80 shadow-xs">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">OFF</p>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-lg font-bold text-zinc-600">{shiftCounts['OFF']}</span>
+                    <CoffeeIcon />
+                  </div>
+                </div>
+
+                <div className="bg-white p-3 rounded-xl border border-zinc-200/80 shadow-xs">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">CUTI</p>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-lg font-bold text-emerald-600">{shiftCounts['CUTI']}</span>
+                    <PalmIcon />
+                  </div>
+                </div>
+
+                <div className="bg-white p-3 rounded-xl border border-zinc-200/80 shadow-xs">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">LHB</p>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-lg font-bold text-yellow-600">{shiftCounts['LHB']}</span>
+                    <CalendarOffIcon />
+                  </div>
+                </div>
+
+                <div className="bg-white p-3 rounded-xl border border-zinc-200/80 shadow-xs">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">SAKIT</p>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-lg font-bold text-rose-600">{shiftCounts['SAKIT']}</span>
+                    <FirstAidIcon />
+                  </div>
+                </div>
+
+                <div className="bg-white p-3 rounded-xl border border-zinc-200/80 shadow-xs">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider truncate" title="PERJALANAN DINAS">DINAS</p>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-lg font-bold text-cyan-600">{shiftCounts['PERJALANAN DINAS']}</span>
+                    <BriefcaseIcon />
+                  </div>
+                </div>
+
+                <div className="bg-white p-3 rounded-xl border border-zinc-200/80 shadow-xs col-span-2 md:col-span-1">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Status Tanggal Ini</p>
+                  <div className="mt-1">
+                    {isIdeal ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-200">
+                        🟢 IDEAL
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-200">
+                        🔴 NOT IDEAL
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+
+              <div className="flex justify-between items-center pt-2">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-bold text-zinc-900 tracking-tight">JADWAL KERJA</h2>
+                  {roleFilter === 'SUPERVISOR' && (
+                    <span className="px-2.5 py-0.5 text-xs font-bold bg-zinc-900 text-white rounded-md">
+                      Tampilan: Hanya Supervisor
+                    </span>
+                  )}
+                </div>
+                <span className="text-xs text-zinc-500 font-bold bg-zinc-200/60 px-3 py-1 rounded-md">
+                  Tanggal: {selectedDate}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <ScheduleTable
+                  title="JADWAL SHIFT 1"
+                  items={shift1Schedules}
+                  headerBg="bg-amber-50/50"
+                  badgeColor="bg-amber-100 text-amber-900 border border-amber-200"
+                />
+
+                <ScheduleTable
+                  title="JADWAL SHIFT 2"
+                  items={shift2Schedules}
+                  headerBg="bg-indigo-50/50"
+                  badgeColor="bg-indigo-100 text-indigo-900 border border-indigo-200"
+                />
+              </div>
+
+              <ScheduleTable
+                title="NON-SHIFT / OFF / CUTI / LHB / SAKIT / DINAS"
+                items={otherSchedules}
+                headerBg="bg-zinc-100/80"
+                badgeColor="bg-zinc-200 text-zinc-700 border border-zinc-300"
+              />
+            </main>
+
+            {/* MODAL PANDUAN SPV */}
+            {isGuideOpen && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+                <div className="bg-white rounded-xl max-w-2xl w-full p-6 shadow-2xl border border-zinc-200 max-h-[90vh] flex flex-col justify-between">
+                  <div className="flex justify-between items-center pb-4 border-b border-zinc-100">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 bg-amber-500 text-slate-950 rounded-lg font-bold">
+                        <BookOpenIcon />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-bold text-zinc-900">Panduan Operasional Supervisor</h3>
+                        <p className="text-xs text-zinc-500 font-medium">SMART SHIFTING SYSTEM - 311</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => setIsGuideOpen(false)}
+                      className="text-zinc-400 hover:text-zinc-600 p-1.5 rounded-lg hover:bg-zinc-100"
+                    >
+                      <XIcon />
+                    </button>
+                  </div>
+
+                  <div className="overflow-y-auto py-4 space-y-5 text-xs leading-relaxed text-zinc-700 pr-2">
+                    <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-amber-950 font-medium">
+                      📌 <strong>Tujuan Aplikasi:</strong> Sistem ini dirancang khusus untuk memantau keseimbangan penugasan Supervisor (SPV), otomatisasi penugasan Sidak Kasir & MOD, serta impor jadwal resmi bulanan dari HRS secara real-time.
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-sm text-zinc-900 mb-1.5 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+                        1. Impor Jadwal Bulanan dari HRS
+                      </h4>
+                      <p>
+                        Klik tombol <strong>Import Excel HRS</strong> di header atas. Pilih file Excel (`.xlsx`/`.xls`) bulanan resmi. Sistem akan membaca seluruh jadwal 1 bulan penuh secara otomatis. Jika file dengan nama yang sama di-upload ulang, sistem akan memberikan konfirmasi penimpaan data duplikat.
+                      </p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-sm text-zinc-900 mb-1.5 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-indigo-600"></span>
+                        2. Translasi Kode Shift Otomatis
+                      </h4>
+                      <ul className="list-disc list-inside space-y-1 pl-2 font-medium text-zinc-600">
+                        <li><strong>P:</strong> Shift 1 (Pagi)</li>
+                        <li><strong>S:</strong> Shift 2 (Siang)</li>
+                        <li><strong>SPK (Supervisor Piket Kunci):</strong> Otomatis diset ke <strong>Shift 2</strong>, Status <strong>MOD</strong>, dan mencatat nama SPV ke daftar <strong>Sidak Kasir</strong>.</li>
+                        <li><strong>OFF / RO:</strong> Libur</li>
+                        <li><strong>PD:</strong> Perjalanan Dinas</li>
+                        <li><strong>CUTI / CU:</strong> Cuti Resmi</li>
+                      </ul>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-sm text-zinc-900 mb-1.5 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-600"></span>
+                        3. Menambah & Mengubah Jadwal Manual
+                      </h4>
+                      <p>
+                        Untuk perubahan harian atau tukar shift mendadak, gunakan tombol <strong>Tambah Jadwal</strong>. Masukkan Tanggal, Nama, Jabatan, Status MOD, dan Shift yang disesuaikan. Data langsung tersimpan di server Google Sheets secara otomatis.
+                      </p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-sm text-zinc-900 mb-1.5 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-rose-600"></span>
+                        4. Standar Keseimbangan (IDEAL Status)
+                      </h4>
+                      <p>
+                        Sistem mensyaratkan minimal <strong>3 Supervisor</strong> bertugas pada Shift 1 dan <strong>3 Supervisor</strong> bertugas pada Shift 2. Jika kurang, status akan menampilkan indikator 🔴 <strong>NOT IDEAL</strong> beserta peringatan di bagian atas dashboard.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-zinc-100 flex justify-end">
+                    <button
+                      onClick={() => setIsGuideOpen(false)}
+                      className="px-4 py-2 bg-slate-900 text-white rounded-lg font-bold hover:bg-slate-800 transition text-xs shadow-xs"
+                    >
+                      Saya Mengerti
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* MODAL TAMBAH JADWAL */}
+            {isModalOpen && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+                <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl border border-zinc-200">
+                  <div className="flex justify-between items-center pb-4 border-b border-zinc-100">
+                    <div>
+                      <h3 className="text-base font-bold text-zinc-900">Tambah Jadwal Supervisor</h3>
+                      <p className="text-xs text-zinc-500 font-medium mt-0.5">MDS DUTAMALL BANJARMASIN - 311</p>
+                    </div>
+                    <button 
+                      onClick={() => setIsModalOpen(false)}
+                      className="text-zinc-400 hover:text-zinc-600 p-1 rounded-md hover:bg-zinc-100"
+                    >
+                      <XIcon />
+                    </button>
+                  </div>
+
+                  {errorMessage && (
+                    <div className="mt-4 p-3 bg-rose-50 text-rose-700 border border-rose-200 text-xs rounded-lg font-medium">
+                      {errorMessage}
+                    </div>
+                  )}
+
+                  <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-600 mb-1">Tanggal</label>
+                      <input
+                        type="date"
+                        name="date"
+                        value={formData.date}
+                        onChange={handleInputChange}
+                        className="w-full px-3.5 py-2 border border-zinc-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:outline-none text-sm text-zinc-800"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-600 mb-1">Nama</label>
+                      <input
+                        type="text"
+                        name="name"
+                        placeholder="Contoh: Lesti"
+                        value={formData.name}
+                        onChange={handleInputChange}
+                        className="w-full px-3.5 py-2 border border-zinc-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:outline-none text-sm text-zinc-800"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-600 mb-1">Jabatan / Role</label>
+                      <select
+                        name="role"
+                        value={formData.role}
+                        onChange={handleInputChange}
+                        className="w-full px-3.5 py-2 border border-zinc-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:outline-none text-sm text-zinc-800 bg-white"
+                      >
+                        <option value="PASS">PASS</option>
+                        <option value="SA SENIOR">SA SENIOR</option>
+                        <option value="TEKNISI">TEKNISI</option>
+                        <option value="SUPERVISOR">SUPERVISOR</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-600 mb-1">Status MOD</label>
+                      <select
+                        name="mod"
+                        value={formData.mod}
+                        onChange={handleInputChange}
+                        className="w-full px-3.5 py-2 border border-zinc-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:outline-none text-sm text-zinc-800 bg-white"
+                      >
+                        <option value="NO MOD">NO MOD</option>
+                        <option value="MOD">MOD</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-600 mb-1">Sidak Kasir</label>
+                      <select
+                        name="sidakKasir"
+                        value={formData.sidakKasir}
+                        onChange={handleInputChange}
+                        className="w-full px-3.5 py-2 border border-zinc-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:outline-none text-sm text-zinc-800 bg-white"
+                      >
+                        <option value="-">- Tidak Ada -</option>
+                        {OFFICIAL_SPVS.map(name => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-600 mb-1">Shift</label>
+                      <select
+                        name="shift"
+                        value={formData.shift}
+                        onChange={handleInputChange}
+                        className="w-full px-3.5 py-2 border border-zinc-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:outline-none text-sm text-zinc-800 bg-white"
+                      >
+                        <option value="Shift 1">Shift 1</option>
+                        <option value="Shift 2">Shift 2</option>
+                        <option value="OFF">OFF</option>
+                        <option value="CUTI">CUTI</option>
+                        <option value="LHB">LHB</option>
+                        <option value="SAKIT">SAKIT</option>
+                        <option value="PERJALANAN DINAS">PERJALANAN DINAS</option>
+                      </select>
+                    </div>
+
+                    <div className="flex gap-3 pt-4 border-t border-zinc-100">
+                      <button
+                        type="button"
+                        onClick={() => setIsModalOpen(false)}
+                        className="w-1/2 py-2 border border-zinc-300 text-zinc-600 rounded-lg font-medium hover:bg-zinc-50 transition text-xs"
+                      >
+                        Batal
+                      </button>
+                      <button
+                        type="submit"
+                        className="w-1/2 py-2 bg-slate-900 text-white rounded-lg font-bold hover:bg-slate-800 transition text-xs shadow-sm"
+                      >
+                        Simpan
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <footer className="mt-12 text-center text-xs text-zinc-400 font-medium py-4 border-t border-zinc-200/80 max-w-7xl mx-auto w-full px-4">
+            Smart Shifting System © 2026 | Built with Precision by Andri Pahreza S. (APS Design System)
+          </footer>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
